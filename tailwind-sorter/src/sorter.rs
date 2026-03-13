@@ -1345,20 +1345,219 @@ static PREFIX_SORT_KEYS: Lazy<HashMap<&'static str, SortKey>> = Lazy::new(|| {
 });
 
 // ---------------------------------------------------------------------------
+// Variant priority ordering — from tailwindcss/packages/tailwindcss/src/variants.ts
+//
+// Each variant type gets a priority number matching Tailwind's registration order.
+// Lower number = earlier in the sort. When a class has multiple variants, we
+// compute a bitmask (OR of 1 << priority for each variant) and sort by that
+// bitmask numerically — this matches Tailwind's compile.ts sorting exactly.
+//
+// Arbitrary variants (e.g., `[&_svg]:`, `[&:hover]:`) always sort LAST (highest priority).
+// ---------------------------------------------------------------------------
+
+/// Priority values for Tailwind variants, matching the registration order in createVariants().
+/// These are bit positions — the actual sort key is a bitmask.
+fn variant_priority(variant: &str) -> u64 {
+    // Compound variants: group-*, peer-*, not-*, in-*, has-*
+    // These are parsed by stripping the root prefix and comparing recursively.
+    // For our purposes, we assign them based on the root prefix's priority.
+    if variant.starts_with("group-") || variant.starts_with("group/") {
+        return 4;
+    }
+    if variant.starts_with("peer-") || variant.starts_with("peer/") {
+        return 5;
+    }
+    if variant.starts_with("not-") {
+        return 3;
+    }
+    if variant.starts_with("in-") || variant.starts_with("in/") {
+        return 50;
+    }
+    if variant.starts_with("has-") || variant.starts_with("has/") {
+        return 51;
+    }
+
+    // Arbitrary variants: [&...], [&_svg], etc.
+    if variant.starts_with('[') {
+        return 100; // Always last among variants
+    }
+
+    match variant {
+        // Pseudo-elements
+        "*" => 1,
+        "**" => 2,
+        "first-letter" => 6,
+        "first-line" => 7,
+        "marker" => 8,
+        "selection" => 9,
+        "file" => 10,
+        "placeholder" => 11,
+        "backdrop" => 12,
+        "details-content" => 13,
+        "before" => 14,
+        "after" => 15,
+
+        // Structural pseudo-classes
+        "first" => 16,
+        "last" => 17,
+        "only" => 18,
+        "odd" => 19,
+        "even" => 20,
+        "first-of-type" => 21,
+        "last-of-type" => 22,
+        "only-of-type" => 23,
+
+        // State pseudo-classes
+        "visited" => 24,
+        "target" => 25,
+        "open" => 26,
+        "default" => 27,
+        "checked" => 28,
+        "indeterminate" => 29,
+        "placeholder-shown" => 30,
+        "autofill" => 31,
+        "optional" => 32,
+        "required" => 33,
+        "valid" => 34,
+        "invalid" => 35,
+        "user-valid" => 36,
+        "user-invalid" => 37,
+        "in-range" => 38,
+        "out-of-range" => 39,
+        "read-only" => 40,
+        "empty" => 41,
+
+        // Interactive pseudo-classes
+        "focus-within" => 42,
+        "hover" => 43,
+        "focus" => 44,
+        "focus-visible" => 45,
+        "active" => 46,
+        "enabled" => 47,
+        "disabled" => 48,
+        "inert" => 49,
+
+        // Compound: in (50), has (51) — handled above with prefix check
+
+        // Functional variants — these match variant roots
+        // aria-* and data-* are functional; we handle them via prefix matching below
+        _ if variant.starts_with("aria-") => 52,
+        _ if variant.starts_with("data-") => 53,
+        _ if variant.starts_with("nth-last-of-type-") => 57,
+        _ if variant.starts_with("nth-of-type-") => 56,
+        _ if variant.starts_with("nth-last-") => 55,
+        _ if variant.starts_with("nth-") => 54,
+        _ if variant.starts_with("supports-") => 58,
+
+        // Media queries: motion, contrast
+        "motion-safe" => 59,
+        "motion-reduce" => 60,
+        "contrast-more" => 61,
+        "contrast-less" => 62,
+
+        // Breakpoints — max variants sort in their own group (descending)
+        // For simplicity, we assign static priorities. Within same priority,
+        // Tailwind uses a custom compareFn; we approximate with alphabetical.
+        _ if variant.starts_with("max-") => 63,
+
+        // Min-width breakpoints (ascending order within same group)
+        "sm" => 64,
+        "md" => 65,
+        "lg" => 66,
+        "xl" => 67,
+        "2xl" => 68,
+        _ if variant.starts_with("min-") => 64, // approximate
+
+        // Container queries
+        _ if variant.starts_with("@max-") => 69,
+        _ if variant.starts_with('@') => 70,
+
+        // Orientation/direction
+        "portrait" => 71,
+        "landscape" => 72,
+        "ltr" => 73,
+        "rtl" => 74,
+
+        // Color scheme
+        "dark" => 75,
+        "starting" => 76,
+        "print" => 77,
+        "forced-colors" => 78,
+        "inverted-colors" => 79,
+
+        // Pointer
+        "pointer-none" => 80,
+        "pointer-coarse" => 81,
+        "pointer-fine" => 82,
+        "any-pointer-none" => 83,
+        "any-pointer-coarse" => 84,
+        "any-pointer-fine" => 85,
+        "noscript" => 86,
+
+        // Unknown/custom variants — sort after built-in but before arbitrary
+        _ => 90,
+    }
+}
+
+/// Compute a variant bitmask for a class. Also returns the number of variants
+/// and the base utility.
+///
+/// The bitmask is used as the PRIMARY sort key (Tailwind sorts by variant bitmask
+/// first, then by property order).
+fn parse_variants(class: &str) -> (u128, usize, &str) {
+    let mut variant_bitmask: u128 = 0;
+    let mut variant_count = 0;
+    let mut last_colon_end = 0;
+    let mut bracket_depth: u32 = 0;
+    let mut segment_start = 0;
+
+    for (i, ch) in class.char_indices() {
+        match ch {
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            ':' if bracket_depth == 0 => {
+                let variant = &class[segment_start..i];
+                if !variant.is_empty() {
+                    let priority = variant_priority(variant);
+                    variant_bitmask |= 1u128 << priority;
+                    variant_count += 1;
+                }
+                last_colon_end = i + 1;
+                segment_start = i + 1;
+            }
+            _ => {}
+        }
+    }
+
+    let base = if variant_count > 0 {
+        &class[last_colon_end..]
+    } else {
+        class
+    };
+
+    (variant_bitmask, variant_count, base)
+}
+
+// ---------------------------------------------------------------------------
 // Sort key computation for a single class
 // ---------------------------------------------------------------------------
 
-/// The sort key for a class: (variant_count, property_order, property_count, base_class).
-/// - `variant_count`: number of variant prefixes (e.g., `hover:md:` = 2). More variants = later.
-/// - `property_order`: sorted property indices (ascending), or `None` for unknown classes.
-/// - `property_count`: total number of properties (more = earlier, matching Tailwind's tie-break).
-/// - `base_class`: the class name without variants, for alphabetical tie-breaking.
+/// The sort key for a class.
+///
+/// Primary sort: variant bitmask (lower = earlier).
+/// Secondary sort: property indices (ascending, element-by-element).
+/// Tertiary sort: property count (more properties = earlier).
+/// Final tie-break: alphabetical by full class name.
+/// Unknown classes (order = None) sort FIRST, preserving relative order.
 #[derive(Debug)]
+#[allow(dead_code)]
 struct ClassSortKey<'a> {
+    variant_bitmask: u128,
     variant_count: usize,
     order: Option<&'a [usize]>,
     count: usize,
     base_class: &'a str,
+    full_class: &'a str,
     original_index: usize,
 }
 
@@ -1369,6 +1568,7 @@ struct ClassSortKey<'a> {
 ///
 /// Special handling for arbitrary variants like `[&>svg]:` — we skip over
 /// brackets to avoid splitting inside them.
+#[allow(dead_code)]
 fn strip_variants(class: &str) -> (usize, &str) {
     // Count colons that are variant separators (not inside brackets)
     let mut variant_count = 0;
@@ -1438,6 +1638,19 @@ static DISAMBIG_COLOR_KEYS: Lazy<HashMap<&'static str, SortKey>> = Lazy::new(|| 
     map
 });
 
+/// Alternate sort key for `text-[<numeric>]` → font-size (instead of color).
+/// The default `text` → color is correct for most cases; this override handles
+/// arbitrary numeric sizes like `text-[10px]`, `text-[0.8rem]`, etc.
+static TEXT_FONTSIZE_KEY: Lazy<SortKey> = Lazy::new(|| {
+    let mut indices: Vec<usize> = ["font-size", "line-height"]
+        .iter()
+        .filter_map(|prop| PROPERTY_INDEX.get(prop).copied())
+        .collect();
+    indices.sort_unstable();
+    indices.dedup();
+    SortKey { order: indices, count: 2 }
+});
+
 /// Check if a suffix after an ambiguous prefix looks like a numeric/keyword value
 /// (not a color). Returns true if the value is a width/size/keyword.
 fn is_numeric_or_keyword_value(prefix: &str, suffix: &str) -> bool {
@@ -1447,8 +1660,20 @@ fn is_numeric_or_keyword_value(prefix: &str, suffix: &str) -> bool {
 
     // Arbitrary values in brackets: check if they contain numbers/units
     if suffix.starts_with('[') {
-        // Arbitrary numeric: [3px], [0.5rem], [2], [50%], [calc(...)]
         let inner = suffix.trim_start_matches('[').trim_end_matches(']');
+        // For "text" prefix, arbitrary numeric values like [10px] [0.8rem] are font-size,
+        // but arbitrary color values like [#ff0000] [rgb(...)] are color.
+        if prefix == "text" {
+            return inner.starts_with(|c: char| c.is_ascii_digit() || c == '.' || c == '-')
+                || inner.starts_with("calc(")
+                || inner.starts_with("var(")
+                || inner.starts_with("clamp(")
+                || inner.ends_with("px")
+                || inner.ends_with("rem")
+                || inner.ends_with("em")
+                || inner.ends_with('%');
+        }
+        // For other ambiguous prefixes: arbitrary numeric = width/size
         return inner.starts_with(|c: char| c.is_ascii_digit() || c == '.' || c == '-')
             || inner.starts_with("calc(")
             || inner.starts_with("var(")
@@ -1460,6 +1685,12 @@ fn is_numeric_or_keyword_value(prefix: &str, suffix: &str) -> bool {
 
     // Check prefix-specific patterns
     match prefix {
+        "text" => {
+            // text-xs..9xl, text-base, text-s are explicit entries above.
+            // This handles arbitrary text-* classes: numeric-ish suffixes are font-size.
+            // Named suffixes like "foreground", "muted-foreground" are colors.
+            false // default: treat as color (most text-* values are colors)
+        }
         "border" => {
             // border-0 through border-8 are explicit entries; this handles
             // arbitrary widths and ensures border-<color> gets color sort key.
@@ -1517,9 +1748,16 @@ fn lookup_sort_key(base_class: &str) -> Option<&'static SortKey> {
     while let Some(dash_pos) = candidate.rfind('-') {
         candidate = &candidate[..dash_pos];
         if let Some(key) = PREFIX_SORT_KEYS.get(candidate) {
-            // 4. Disambiguate: check if this is an ambiguous prefix with a color value
+            let suffix = &effective[candidate.len() + 1..]; // part after "prefix-"
+
+            // 4a. Special handling for `text` prefix:
+            //     text-[10px] etc. → font-size (not color)
+            if candidate == "text" && is_numeric_or_keyword_value("text", suffix) {
+                return Some(&TEXT_FONTSIZE_KEY);
+            }
+
+            // 4b. Disambiguate: check if this is an ambiguous prefix with a color value
             if let Some(color_key) = DISAMBIG_COLOR_KEYS.get(candidate) {
-                let suffix = &effective[candidate.len() + 1..]; // part after "prefix-"
                 if !is_numeric_or_keyword_value(candidate, suffix) {
                     return Some(color_key);
                 }
@@ -1532,11 +1770,12 @@ fn lookup_sort_key(base_class: &str) -> Option<&'static SortKey> {
 }
 
 /// Compare two class sort keys using Tailwind's algorithm from compile.ts:
-/// 1. Sort by variant count (fewer variants first)
-/// 2. Sort by property indices (element-by-element comparison)
-/// 3. More properties → earlier (tie-break)
-/// 4. Alphabetical by class name (final tie-break)
-/// 5. Unknown classes sort last, preserving original order
+///
+/// 1. Unknown classes (order = None) sort FIRST, preserving relative order.
+/// 2. Sort by variant bitmask (lower bitmask = earlier) — this is the PRIMARY sort.
+/// 3. Sort by property indices (element-by-element comparison).
+/// 4. More properties → earlier (tie-break).
+/// 5. Alphabetical by full class name (final tie-break).
 fn compare_classes(a: &ClassSortKey, b: &ClassSortKey) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
@@ -1547,13 +1786,13 @@ fn compare_classes(a: &ClassSortKey, b: &ClassSortKey) -> std::cmp::Ordering {
         (None, Some(_)) => return Ordering::Less,
         (Some(_), None) => return Ordering::Greater,
         (Some(a_order), Some(b_order)) => {
-            // Sort by variant count first
-            let variant_cmp = a.variant_count.cmp(&b.variant_count);
+            // PRIMARY: Sort by variant bitmask (Tailwind sorts by variant order FIRST)
+            let variant_cmp = a.variant_bitmask.cmp(&b.variant_bitmask);
             if variant_cmp != Ordering::Equal {
                 return variant_cmp;
             }
 
-            // Compare property indices element-by-element
+            // SECONDARY: Compare property indices element-by-element
             let mut offset = 0;
             while offset < a_order.len() && offset < b_order.len() {
                 if a_order[offset] != b_order[offset] {
@@ -1576,8 +1815,10 @@ fn compare_classes(a: &ClassSortKey, b: &ClassSortKey) -> std::cmp::Ordering {
                 return len_cmp;
             }
 
-            // Final tie-break: alphabetical by base class name
-            a.base_class.cmp(b.base_class)
+            // Final tie-break: alphabetical by full class name
+            // Using full class (with variants) ensures consistent ordering of
+            // same-base-utility classes with different variants.
+            a.full_class.cmp(b.full_class)
         }
     }
 }
@@ -1646,13 +1887,15 @@ impl ClassSorter {
             .iter()
             .enumerate()
             .map(|(i, &cls)| {
-                let (variant_count, base) = strip_variants(cls);
+                let (variant_bitmask, variant_count, base) = parse_variants(cls);
                 let sort_key = lookup_sort_key(base);
                 ClassSortKey {
+                    variant_bitmask,
                     variant_count,
                     order: sort_key.map(|k| k.order.as_slice()),
                     count: sort_key.map_or(0, |k| k.count),
                     base_class: base,
+                    full_class: cls,
                     original_index: i,
                 }
             })
