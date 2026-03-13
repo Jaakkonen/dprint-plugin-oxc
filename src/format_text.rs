@@ -5,6 +5,7 @@ use oxc_formatter::ArrowParentheses;
 use oxc_formatter::AttributePosition;
 use oxc_formatter::EmbeddedLanguageFormatting;
 use oxc_formatter::Expand;
+use oxc_formatter::ExternalCallbacks;
 use oxc_formatter::FormatOptions;
 use oxc_formatter::Formatter;
 use oxc_formatter::IndentStyle;
@@ -25,6 +26,8 @@ use oxc_parser::ParseOptions;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 use std::path::Path;
+use std::sync::Arc;
+use tailwind_sorter::{ClassSorter, SortOptions};
 
 use crate::configuration::Configuration;
 
@@ -55,8 +58,27 @@ pub fn format_text(file_path: &Path, input_text: &str, config: &Configuration) -
   }
 
   let options = build_format_options(config);
+
+  // Build the Tailwind callback if experimentalTailwindcss is configured.
+  // The wasm plugin runs sandboxed (no filesystem access), so we always use the
+  // bundled Tailwind v4 class order regardless of the `stylesheet` option.
+  // The `stylesheet` path is noted in config for future native-binary support.
+  let tailwind_callback = config.experimental_tailwindcss.as_ref().map(|tw| {
+    let sorter = Arc::new(ClassSorter::new(SortOptions {
+      preserve_duplicates: tw.preserve_duplicates,
+      preserve_whitespace: tw.preserve_whitespace,
+    }));
+    let callback: Arc<dyn Fn(Vec<String>) -> Vec<String> + Send + Sync> =
+      Arc::new(move |classes: Vec<String>| sorter.sort_class_attributes(classes));
+    callback
+  });
+
+  let external_callbacks = ExternalCallbacks::new().with_tailwind(tailwind_callback);
+
   let formatter = Formatter::new(&allocator, options);
-  let output = formatter.build(&parsed.program);
+  let output = formatter.format_with_external_callbacks(&parsed.program, Some(external_callbacks));
+
+  let output = output.print().map_err(|e| anyhow::anyhow!("Print error: {e}"))?.into_code();
 
   if output == input_text {
     Ok(None)
@@ -226,13 +248,52 @@ fn build_format_options(config: &Configuration) -> FormatOptions {
 mod test {
   use super::*;
 
+  fn config_with_tailwind() -> Configuration {
+    let mut config = Configuration::default();
+    config.experimental_tailwindcss = Some(crate::configuration::TailwindcssOptions {
+      functions: vec!["cn".to_string(), "clsx".to_string(), "cva".to_string()],
+      ..Default::default()
+    });
+    config
+  }
+
   #[test]
   fn formats_basic_js() {
     let input = "const x=1";
-    let config = crate::configuration::Configuration::default();
+    let config = Configuration::default();
     let result = format_text(std::path::Path::new("test.js"), input, &config)
       .unwrap()
       .unwrap();
     assert_eq!(result, "const x = 1;\n");
+  }
+
+  #[test]
+  fn sorts_tailwind_classes_in_classname() {
+    let input = r#"const A = <div className="p-4 flex">Hello</div>;"#;
+    let config = config_with_tailwind();
+    let result = format_text(std::path::Path::new("test.tsx"), input, &config)
+      .unwrap()
+      .unwrap();
+    assert!(result.contains(r#"className="flex p-4""#), "got: {result}");
+  }
+
+  #[test]
+  fn sorts_tailwind_classes_in_cn_call() {
+    let input = r#"const x = cn("p-4 flex items-center");"#;
+    let config = config_with_tailwind();
+    let result = format_text(std::path::Path::new("test.tsx"), input, &config)
+      .unwrap()
+      .unwrap();
+    assert!(result.contains(r#"cn("flex items-center p-4")"#), "got: {result}");
+  }
+
+  #[test]
+  fn no_sorting_when_tailwind_not_configured() {
+    let input = r#"const A = <div className="p-4 flex">Hello</div>;"#;
+    let config = Configuration::default();
+    let result = format_text(std::path::Path::new("test.tsx"), input, &config)
+      .unwrap()
+      .unwrap();
+    assert!(result.contains(r#"className="p-4 flex""#), "got: {result}");
   }
 }

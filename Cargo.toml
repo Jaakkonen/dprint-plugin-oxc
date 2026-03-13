@@ -32,6 +32,7 @@ oxc_parser = { git = "https://github.com/oxc-project/oxc", tag = "crates_v0.118.
 oxc_span = { git = "https://github.com/oxc-project/oxc", tag = "crates_v0.118.0" }
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
+tailwind-sorter = { path = "./tailwind-sorter" }
 
 [dev-dependencies]
 dprint-development = "0.10.2"
