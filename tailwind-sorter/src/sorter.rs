@@ -1225,12 +1225,15 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     // sorting, this means they get an empty sort key (with count > 0), so they
     // sort after all classes with actual property indices. We map them to
     // "outline-style" which won't be found in PROPERTY_INDEX → empty order [].
-    ("outline-hidden", &["outline-style"]),
-    ("outline-none", &["outline-style"]),
-    ("outline-solid", &["outline-style"]),
-    ("outline-dashed", &["outline-style"]),
-    ("outline-dotted", &["outline-style"]),
-    ("outline-double", &["outline-style"]),
+    // outline-hidden generates: --tw-outline-style, outline-style, outline (in @media), outline-offset (in @media)
+    // getPropertySort walks all declarations including nested @media/at-rules
+    ("outline-hidden", &["--tw-outline-style", "outline-style", "outline", "outline-offset"]),
+    // outline-none generates: --tw-outline-style, outline-style (2 declarations)
+    ("outline-none", &["--tw-outline-style", "outline-style"]),
+    ("outline-solid", &["--tw-outline-style", "outline-style"]),
+    ("outline-dashed", &["--tw-outline-style", "outline-style"]),
+    ("outline-dotted", &["--tw-outline-style", "outline-style"]),
+    ("outline-double", &["--tw-outline-style", "outline-style"]),
     ("outline", &["outline-width"]),
     ("outline-offset", &["outline-offset"]),
 
