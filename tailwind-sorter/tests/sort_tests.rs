@@ -369,3 +369,75 @@ fn card_component_classes() {
     // Shadow after text/opacity area
     assert!(pos("p-6") < pos("shadow-md"), "{result}");
 }
+
+#[test]
+fn arbitrary_selector_simple_before_specific() {
+    // [&_svg] should sort before [&_svg:not(...)]: simpler selector first
+    let s = ClassSorter::new(SortOptions::default());
+    let result = s.sort_class_string(
+        "[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0".to_string()
+    );
+    assert_eq!(
+        result,
+        "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "simpler arbitrary selector should sort first"
+    );
+}
+
+#[test]
+fn arbitrary_svg_underscore_decoding() {
+    // [&_svg] decoded → "& svg", [&_svg:not(...)]] decoded → "& svg:not(...)"
+    // "& svg" < "& svg:not(...)" so [&_svg] sorts first
+    let s = ClassSorter::new(SortOptions::default());
+    let result = s.sort_class_string(
+        "[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0".to_string()
+    );
+    assert_eq!(
+        result,
+        "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+    );
+}
+
+#[test]
+fn arbitrary_svg_vs_span_ordering() {
+    // [&_svg] decoded → "& svg", [&>span:last-child] decoded → "&>span:last-child"
+    // "& " (space=32) vs "&>" (62) → [&_svg] sorts first
+    let s = ClassSorter::new(SortOptions::default());
+    let result = s.sort_class_string(
+        "[&>span:last-child]:truncate [&_svg]:size-4 [&_svg]:shrink-0".to_string()
+    );
+    assert_eq!(
+        result,
+        "[&_svg]:size-4 [&_svg]:shrink-0 [&>span:last-child]:truncate"
+    );
+}
+
+#[test]
+fn has_compound_arbitrary_ordering() {
+    // has-[[data-slot=...]] inner selector: "&:is([data-slot=...])" (wrapped, no & in original)
+    // has-[>[data-align=...]] inner selector: ">[data-align=...]" (relative, not wrapped)
+    // "&:is(..." (38) < ">[data-..." (62) → has-[[...]] sorts first
+    let s = ClassSorter::new(SortOptions::default());
+    let result = s.sort_class_string(
+        "has-[>[data-align=block-end]]:h-auto has-[[data-slot=input]:focus-visible]:border-ring".to_string()
+    );
+    assert_eq!(
+        result,
+        "has-[[data-slot=input]:focus-visible]:border-ring has-[>[data-align=block-end]]:h-auto"
+    );
+}
+
+#[test]
+fn line_clamp_before_flex_in_variant() {
+    // line-clamp has [display, overflow] → flex has [display]
+    // Same first property (display), but line-clamp has second property (overflow < Infinity)
+    // → line-clamp sorts first
+    let s = ClassSorter::new(SortOptions::default());
+    let result = s.sort_class_string(
+        "*:data-[slot=select-value]:flex *:data-[slot=select-value]:line-clamp-1".to_string()
+    );
+    assert_eq!(
+        result,
+        "*:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex"
+    );
+}

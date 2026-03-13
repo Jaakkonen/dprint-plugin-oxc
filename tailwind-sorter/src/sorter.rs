@@ -511,8 +511,9 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     ("list-item", &["display"]),
     ("hidden", &["display"]),
 
-    // -- Line clamp (sorts by display — first recognized property) --
-    ("line-clamp", &["display"]),
+    // -- Line clamp: overflow, display, -webkit-box-orient, -webkit-line-clamp --
+    // Only overflow and display are in PROPERTY_ORDER; the other two are ignored.
+    ("line-clamp", &["overflow", "display", "-webkit-box-orient", "-webkit-line-clamp"]),
 
     // -- Field sizing --
     ("field-sizing-content", &["field-sizing"]),
@@ -1521,30 +1522,222 @@ fn variant_priority(variant: &str) -> u64 {
     }
 }
 
-/// Classify a variant for sub-sorting within the same priority group.
-/// Named variants sort before arbitrary-value variants.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum VariantKind {
-    Named,     // data-closed, data-open, aria-invalid, etc.
-    Arbitrary, // data-[side=bottom], data-[state=selected], etc.
+/// A parsed variant with its components for comparison.
+///
+/// Mirrors Tailwind's internal Variant type: each variant is either
+/// arbitrary (`[&_svg]`), static (`hover`), functional (`data-closed`,
+/// `data-[side=bottom]`), or compound (`group-hover`, `has-disabled`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct VariantKey {
+    /// The full raw variant string (e.g., "hover", "data-[side=bottom]", "[&_svg]").
+    raw: String,
 }
 
-/// A single parsed variant with its sort key components.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct VariantKey {
-    /// Primary sort: variant registration priority (from variant_priority()).
-    priority: u64,
-    /// Secondary sort: named values before arbitrary values.
-    kind: VariantKind,
-    /// Tertiary sort: alphabetical by variant name for tie-breaking.
-    name: String,
+impl VariantKey {
+    /// Is this an arbitrary variant like `[&_svg]`, `[[data-slot=...]_&]`?
+    fn is_arbitrary(&self) -> bool {
+        self.raw.starts_with('[')
+    }
+
+    /// Get the resolved selector string for arbitrary variants (for lexicographic comparison).
+    ///
+    /// Mirrors Tailwind's candidate.ts parseVariant() for arbitrary variants:
+    /// 1. Strip outer brackets: `[&_svg]` → `&_svg`
+    /// 2. Decode `_` to space: `&_svg` → `& svg` (decodeArbitraryValue)
+    /// 3. Wrap non-relative selectors without `&`: `.foo` → `&:is(.foo)`
+    ///    - Relative selectors (starting with `>`, `+`, `~`) are left as-is
+    ///    - Selectors containing `&` are left as-is
+    ///    - At-rule selectors (starting with `@`) are left as-is
+    fn arbitrary_selector(&self) -> String {
+        let inner = if self.raw.starts_with('[') && self.raw.ends_with(']') {
+            &self.raw[1..self.raw.len() - 1]
+        } else {
+            &self.raw
+        };
+        // Tailwind decodes `_` to space in arbitrary values (decodeArbitraryValue in candidate.ts)
+        let decoded = inner.replace('_', " ");
+
+        // Wrap in &:is(...) if it's not relative and doesn't contain &
+        let first_char = decoded.chars().next().unwrap_or('\0');
+        let relative = first_char == '>' || first_char == '+' || first_char == '~';
+        if !relative && first_char != '@' && !decoded.contains('&') {
+            format!("&:is({})", decoded)
+        } else {
+            decoded
+        }
+    }
+
+    /// Get the root prefix for compound variants.
+    /// `group-hover` → Some(("group", "hover")), `has-disabled` → Some(("has", "disabled"))
+    /// `peer-data-[variant=inset]` → Some(("peer", "data-[variant=inset]"))
+    fn compound_parts(&self) -> Option<(&str, &str)> {
+        // Compound variants: group-*, peer-*, not-*, in-*, has-*
+        // Note: group/name and peer/name are modifier forms, not compounds
+        for prefix in &["group-", "peer-", "not-", "in-", "has-"] {
+            if self.raw.starts_with(prefix) {
+                let inner = &self.raw[prefix.len()..];
+                // Strip modifier (e.g., group-hover/sidebar → inner="hover/sidebar" → "hover")
+                let root = &prefix[..prefix.len() - 1]; // remove trailing '-'
+                return Some((root, inner));
+            }
+        }
+        None
+    }
+
+    /// Get the functional variant root and value.
+    /// `data-closed` → Some(("data", "closed", false))
+    /// `data-[side=bottom]` → Some(("data", "side=bottom", true))
+    /// `aria-invalid` → Some(("aria", "invalid", false))
+    fn functional_parts(&self) -> Option<(&str, &str, bool)> {
+        // Functional prefixes that take values
+        for prefix in &["aria-", "data-", "supports-", "nth-", "nth-of-type-",
+                         "nth-last-", "nth-last-of-type-", "max-", "min-", "@max-", "@"] {
+            if self.raw.starts_with(prefix) {
+                let value_part = &self.raw[prefix.len()..];
+                if value_part.starts_with('[') && value_part.ends_with(']') {
+                    let inner = &value_part[1..value_part.len() - 1];
+                    return Some((prefix.trim_end_matches('-'), inner, true));
+                }
+                return Some((prefix.trim_end_matches('-'), value_part, false));
+            }
+        }
+        None
+    }
+
+    /// Get the modifier part if any (after `/`).
+    /// `group-hover/sidebar` → Some("sidebar"), `hover` → None
+    fn modifier(&self) -> Option<&str> {
+        // Find `/` not inside brackets
+        let mut bracket_depth: u32 = 0;
+        for (i, ch) in self.raw.char_indices() {
+            match ch {
+                '[' => bracket_depth += 1,
+                ']' => bracket_depth = bracket_depth.saturating_sub(1),
+                '/' if bracket_depth == 0 => return Some(&self.raw[i + 1..]),
+                _ => {}
+            }
+        }
+        None
+    }
+
+}
+
+/// Compare two variants using Tailwind's `Variants.compare()` algorithm.
+///
+/// Mirrors `variants.ts` lines 203-270:
+/// 1. Arbitrary variants (`[&...]`) always sort AFTER non-arbitrary.
+///    Between two arbitrary variants, compare by selector string.
+/// 2. Compare by registration order (root priority from variant_priority()).
+/// 3. Compound variants (group-*, peer-*, etc.): recursively compare inner variant,
+///    then by modifier.
+/// 4. Functional variants (data-*, aria-*): named values before arbitrary values,
+///    then alphabetically by value.
+fn compare_variant_keys(a: &VariantKey, b: &VariantKey) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+
+    // 1. Arbitrary variants sort after all non-arbitrary
+    match (a.is_arbitrary(), b.is_arbitrary()) {
+        (true, true) => {
+            // Between two arbitrary variants: lexicographic by selector string
+            return a.arbitrary_selector().cmp(&b.arbitrary_selector());
+        }
+        (true, false) => return Ordering::Greater,
+        (false, true) => return Ordering::Less,
+        (false, false) => {}
+    }
+
+    // 2. Compare by root registration order
+    let a_priority = variant_priority(&a.raw);
+    let b_priority = variant_priority(&b.raw);
+    if a_priority != b_priority {
+        return a_priority.cmp(&b_priority);
+    }
+
+    // 3. Compound variants: recursively compare inner variant
+    match (a.compound_parts(), b.compound_parts()) {
+        (Some((a_root, a_inner)), Some((b_root, b_inner))) => {
+            // If roots differ (shouldn't happen since priorities matched, but just in case)
+            if a_root != b_root {
+                return a_root.cmp(b_root);
+            }
+
+            // Strip modifier from inner parts for comparison
+            let a_inner_base = a_inner.split('/').next().unwrap_or(a_inner);
+            let b_inner_base = b_inner.split('/').next().unwrap_or(b_inner);
+
+            // Recursively compare inner variants
+            let a_inner_key = VariantKey { raw: a_inner_base.to_string() };
+            let b_inner_key = VariantKey { raw: b_inner_base.to_string() };
+            let inner_cmp = compare_variant_keys(&a_inner_key, &b_inner_key);
+            if inner_cmp != Ordering::Equal {
+                return inner_cmp;
+            }
+
+            // Compare modifiers: no modifier < has modifier, then lexicographic
+            let a_mod = a.modifier();
+            let b_mod = b.modifier();
+            match (a_mod, b_mod) {
+                (None, None) => return Ordering::Equal,
+                (None, Some(_)) => return Ordering::Less,
+                (Some(_), None) => return Ordering::Greater,
+                (Some(am), Some(bm)) => return am.cmp(bm),
+            }
+        }
+        _ => {}
+    }
+
+    // 4. Functional variants: named before arbitrary, then by value
+    match (a.functional_parts(), b.functional_parts()) {
+        (Some((a_root, a_val, a_arb)), Some((b_root, b_val, b_arb))) => {
+            // Compare roots lexicographically if different
+            if a_root != b_root {
+                return a_root.cmp(b_root);
+            }
+
+            // Named values before arbitrary values
+            match (a_arb, b_arb) {
+                (false, true) => return Ordering::Less,
+                (true, false) => return Ordering::Greater,
+                _ => {}
+            }
+
+            // Lexicographic by value
+            return a_val.cmp(b_val);
+        }
+        _ => {}
+    }
+
+    // 5. Compare modifiers for non-compound, non-functional variants
+    let a_mod = a.modifier();
+    let b_mod = b.modifier();
+    match (a_mod, b_mod) {
+        (None, None) => {}
+        (None, Some(_)) => return Ordering::Less,
+        (Some(_), None) => return Ordering::Greater,
+        (Some(am), Some(bm)) => {
+            let cmp = am.cmp(bm);
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
+        }
+    }
+
+    // Final: alphabetical by raw variant string
+    a.raw.cmp(&b.raw)
 }
 
 /// Parse all variant prefixes from a class name.
-/// Returns a sorted vector of variant keys, the variant count, and the base utility.
+/// Returns the sorted variant keys, the variant count, and the base utility.
 ///
-/// The variant key vector is used as the PRIMARY sort key (Tailwind sorts by
-/// variant order FIRST, then by property order).
+/// Tailwind's sorting works by:
+/// 1. Each unique variant gets a unique ordinal position based on `Variants.compare()`.
+/// 2. A class's variant sort key is a bitmask: `OR(1 << ordinal)` for each variant.
+/// 3. Classes are sorted first by bitmask (numeric), then by property order.
+///
+/// Since each unique variant string gets its own ordinal, comparing bitmasks is
+/// equivalent to comparing the sorted sets of ordinals. We implement this by
+/// sorting each class's variant keys using `compare_variant_keys()` and comparing
+/// the sorted vectors.
 fn parse_variants(class: &str) -> (Vec<VariantKey>, usize, &str) {
     let mut variants = Vec::new();
     let mut variant_count = 0;
@@ -1559,17 +1752,8 @@ fn parse_variants(class: &str) -> (Vec<VariantKey>, usize, &str) {
             ':' if bracket_depth == 0 => {
                 let variant = &class[segment_start..i];
                 if !variant.is_empty() {
-                    let priority = variant_priority(variant);
-                    // Determine if this is a named or arbitrary-value variant
-                    let kind = if variant.contains('[') {
-                        VariantKind::Arbitrary
-                    } else {
-                        VariantKind::Named
-                    };
                     variants.push(VariantKey {
-                        priority,
-                        kind,
-                        name: variant.to_string(),
+                        raw: variant.to_string(),
                     });
                     variant_count += 1;
                 }
@@ -1580,8 +1764,8 @@ fn parse_variants(class: &str) -> (Vec<VariantKey>, usize, &str) {
         }
     }
 
-    // Sort variants by priority (ascending), then kind (named < arbitrary), then name
-    variants.sort();
+    // Sort variant keys to produce a canonical ordering matching Tailwind's ordinal assignment
+    variants.sort_by(compare_variant_keys);
 
     let base = if variant_count > 0 {
         &class[last_colon_end..]
@@ -1598,7 +1782,7 @@ fn parse_variants(class: &str) -> (Vec<VariantKey>, usize, &str) {
 
 /// The sort key for a class.
 ///
-/// Primary sort: variant bitmask (lower = earlier).
+/// Primary sort: variant ordinal set (compared as sorted vectors).
 /// Secondary sort: property indices (ascending, element-by-element).
 /// Tertiary sort: property count (more properties = earlier).
 /// Final tie-break: alphabetical by full class name.
@@ -1826,7 +2010,7 @@ fn lookup_sort_key(base_class: &str) -> Option<&'static SortKey> {
 /// Compare two class sort keys using Tailwind's algorithm from compile.ts:
 ///
 /// 1. Unknown classes (order = None) sort FIRST, preserving relative order.
-/// 2. Sort by variant bitmask (lower bitmask = earlier) — this is the PRIMARY sort.
+/// 2. Sort by variant ordinal set (compared as sorted vectors, matching bitmask comparison).
 /// 3. Sort by property indices (element-by-element comparison).
 /// 4. More properties → earlier (tie-break).
 /// 5. Alphabetical by full class name (final tie-break).
@@ -1847,12 +2031,19 @@ fn compare_classes(a: &ClassSortKey, b: &ClassSortKey) -> std::cmp::Ordering {
     let a_order = a.order.unwrap_or(&[]);
     let b_order = b.order.unwrap_or(&[]);
 
-    // PRIMARY: Sort by variant keys (Tailwind sorts by variant order FIRST).
-    // Compare variant key vectors lexicographically — this handles:
-    // - Different variant types (hover < disabled < data-* < dark)
-    // - Sub-sorting within same type (data-closed < data-open < data-[side=*])
-    // - Different variant counts (0 variants < 1 variant < 2 variants)
-    let variant_cmp = a.variant_keys.cmp(&b.variant_keys);
+    // PRIMARY: Sort by variant ordinal set.
+    //
+    // Tailwind assigns each unique variant a unique ordinal, then builds a bitmask
+    // by OR-ing `1 << ordinal` for each variant. Classes are sorted by bitmask
+    // (numeric comparison of bigints). Since our variant keys are already sorted
+    // by compare_variant_keys(), comparing the vectors element-by-element is
+    // equivalent to comparing the bitmasks of their ordinal sets.
+    //
+    // The comparison works as follows:
+    // - Compare each pair of corresponding variants using compare_variant_keys().
+    // - If one class has more variants than the other and all shared variants
+    //   match, the class with fewer variants sorts first (smaller bitmask).
+    let variant_cmp = compare_variant_sets(&a.variant_keys, &b.variant_keys);
     if variant_cmp != Ordering::Equal {
         return variant_cmp;
     }
@@ -1882,6 +2073,82 @@ fn compare_classes(a: &ClassSortKey, b: &ClassSortKey) -> std::cmp::Ordering {
     // Using full class (with variants) ensures consistent ordering of
     // same-base-utility classes with different variants.
     a.full_class.cmp(b.full_class)
+}
+
+/// Compare two sorted variant key vectors, simulating Tailwind's bitmask comparison.
+///
+/// Tailwind's bitmask comparison works because each variant gets a unique bit position.
+/// When variant A has ordinal 5 and variant B has ordinal 7, a class with {A} has
+/// bitmask 0b100000 = 32, and a class with {B} has bitmask 0b10000000 = 128.
+/// So {A} < {B}, and {A,B} = 32|128 = 160 > {B} = 128 > {A} = 32.
+///
+/// For two sorted variant vectors, the equivalent comparison is:
+/// - Compare corresponding elements pairwise using compare_variant_keys().
+/// - If all shared elements are equal, fewer variants sorts first.
+/// - But if they differ: the comparison at the first differing position determines
+///   the order, EXCEPT we need to handle the case where one set is a proper subset
+///   differently from where the sets actually differ.
+///
+/// Actually, comparing sorted sets by their bitmask numeric value is:
+/// - Find the highest ordinal where the sets differ.
+/// - The set that contains that ordinal sorts AFTER (it has a higher bitmask).
+///
+/// Since our vectors are sorted in ascending ordinal order, we compare from the
+/// END (highest ordinal) to match bitmask numeric comparison.
+fn compare_variant_sets(a: &[VariantKey], b: &[VariantKey]) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+
+    // No variants: equal
+    if a.is_empty() && b.is_empty() {
+        return Ordering::Equal;
+    }
+    // No variants sorts before any variants
+    if a.is_empty() {
+        return Ordering::Less;
+    }
+    if b.is_empty() {
+        return Ordering::Greater;
+    }
+
+    // Compare from the highest-ordinal variant (end of sorted vectors) to lowest,
+    // matching how numeric bitmask comparison works (MSB first).
+    //
+    // For bitmask comparison:
+    // {data-closed(53), dark(75)} = 2^53 | 2^75  vs  {data-open(53), dark(75)} = 2^53 | 2^75
+    // These are equal bitmask (same bits set), but we need sub-sorting by variant value.
+    //
+    // More precisely: Tailwind gives each UNIQUE variant its own bit position.
+    // data-closed might be ordinal 40, data-open ordinal 41, dark ordinal 60.
+    // So {data-closed, dark} = 2^40 | 2^60 and {data-open, dark} = 2^41 | 2^60.
+    // Bitmask comparison: 2^40|2^60 < 2^41|2^60 (since 2^40 < 2^41 and 2^60 cancels).
+    //
+    // To replicate: compare from the end. If the highest ordinals match (dark==dark),
+    // proceed to next. data-closed vs data-open differ → use compare_variant_keys.
+
+    let mut ai = a.len();
+    let mut bi = b.len();
+
+    while ai > 0 && bi > 0 {
+        ai -= 1;
+        bi -= 1;
+        let cmp = compare_variant_keys(&a[ai], &b[bi]);
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+    }
+
+    // All compared elements are equal. The one with more remaining (more variants)
+    // has additional lower-ordinal bits set, which makes its bitmask LARGER.
+    // But wait — ai > 0 means `a` has more lower-ordinal variants, which means
+    // `a` has a LARGER bitmask → sorts after.
+    if ai > 0 {
+        return Ordering::Greater;
+    }
+    if bi > 0 {
+        return Ordering::Less;
+    }
+
+    Ordering::Equal
 }
 
 // ---------------------------------------------------------------------------
