@@ -1801,28 +1801,17 @@ fn lookup_sort_key(base_class: &str) -> Option<&'static SortKey> {
 fn compare_classes(a: &ClassSortKey, b: &ClassSortKey) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
-    // Unknown base-only classes (no variants, order = None) sort FIRST, preserving
-    // relative order — matching prettier-plugin-tailwindcss where getClassOrder
-    // returns null for truly unknown classes.
-    //
-    // However, classes WITH variants but unknown base utility (like data-closed:fade-out-0
-    // where fade-out-0 isn't in our table) should still sort by their variant bitmask
-    // and be placed after all known base classes. We treat unknown bases with variants
-    // as having "infinity" property order.
-    let a_has_variants = a.variant_bitmask != 0;
-    let b_has_variants = b.variant_bitmask != 0;
-
+    // Unknown classes (order = None) sort FIRST, preserving relative order.
+    // This matches prettier-plugin-tailwindcss where getClassOrder returns null
+    // for unrecognized classes. Note: even classes WITH variants get null if
+    // their base utility is unknown to Tailwind's compiler.
     match (a.order, b.order) {
-        (None, None) if !a_has_variants && !b_has_variants => {
-            return a.original_index.cmp(&b.original_index);
-        }
-        (None, Some(_)) if !a_has_variants => return Ordering::Less,
-        (Some(_), None) if !b_has_variants => return Ordering::Greater,
+        (None, None) => return a.original_index.cmp(&b.original_index),
+        (None, Some(_)) => return Ordering::Less,
+        (Some(_), None) => return Ordering::Greater,
         _ => {}
     }
 
-    // For all other cases (including unknown bases with variants), use the
-    // standard comparison but treat None order as empty array with high sort position.
     let a_order = a.order.unwrap_or(&[]);
     let b_order = b.order.unwrap_or(&[]);
 
