@@ -917,6 +917,7 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     // -- Background image / gradient --
     ("bg-none", &["background-image"]),
     ("bg-linear", &["background-image"]),
+    ("bg-gradient", &["background-image"]),
     ("bg-conic", &["background-image"]),
     ("bg-radial", &["background-image"]),
 
@@ -1334,9 +1335,11 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     ("forced-color-adjust-none", &["forced-color-adjust"]),
     ("forced-color-adjust-auto", &["forced-color-adjust"]),
 
-    // -- Accessibility (sr-only sorts by position — first recognized property) --
-    ("sr-only", &["position"]),
-    ("not-sr-only", &["position"]),
+    // -- Accessibility --
+    // sr-only: position, width, height, padding, margin, overflow, clip-path, white-space, border-width
+    ("sr-only", &["position", "width", "height", "padding", "margin", "overflow", "clip-path", "white-space", "border-width"]),
+    // not-sr-only: position, width, height, padding, margin, overflow, clip-path, white-space
+    ("not-sr-only", &["position", "width", "height", "padding", "margin", "overflow", "clip-path", "white-space"]),
 ];
 
 // ---------------------------------------------------------------------------
@@ -2069,9 +2072,14 @@ fn compare_classes(a: &ClassSortKey, b: &ClassSortKey) -> std::cmp::Ordering {
         return count_cmp;
     }
 
-    // Final tie-break: alphabetical by full class name
-    // Using full class (with variants) ensures consistent ordering of
-    // same-base-utility classes with different variants.
+    // Final tie-break: alphabetical by full class name.
+    //
+    // This is a pragmatic approximation. Tailwind assigns unique bigints to static
+    // utilities (absolute, relative) but identical bigints to functional utility
+    // variants (opacity-50, opacity-100). With identical bigints, prettier preserves
+    // original order (stable sort). We can't distinguish these cases without
+    // compiling each class, so we use alphabetical ordering which matches
+    // Tailwind's static utility registration order in most cases.
     a.full_class.cmp(b.full_class)
 }
 
