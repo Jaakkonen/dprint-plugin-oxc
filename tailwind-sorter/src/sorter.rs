@@ -1521,13 +1521,32 @@ fn variant_priority(variant: &str) -> u64 {
     }
 }
 
-/// Compute a variant bitmask for a class. Also returns the number of variants
-/// and the base utility.
+/// Classify a variant for sub-sorting within the same priority group.
+/// Named variants sort before arbitrary-value variants.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum VariantKind {
+    Named,     // data-closed, data-open, aria-invalid, etc.
+    Arbitrary, // data-[side=bottom], data-[state=selected], etc.
+}
+
+/// A single parsed variant with its sort key components.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct VariantKey {
+    /// Primary sort: variant registration priority (from variant_priority()).
+    priority: u64,
+    /// Secondary sort: named values before arbitrary values.
+    kind: VariantKind,
+    /// Tertiary sort: alphabetical by variant name for tie-breaking.
+    name: String,
+}
+
+/// Parse all variant prefixes from a class name.
+/// Returns a sorted vector of variant keys, the variant count, and the base utility.
 ///
-/// The bitmask is used as the PRIMARY sort key (Tailwind sorts by variant bitmask
-/// first, then by property order).
-fn parse_variants(class: &str) -> (u128, usize, &str) {
-    let mut variant_bitmask: u128 = 0;
+/// The variant key vector is used as the PRIMARY sort key (Tailwind sorts by
+/// variant order FIRST, then by property order).
+fn parse_variants(class: &str) -> (Vec<VariantKey>, usize, &str) {
+    let mut variants = Vec::new();
     let mut variant_count = 0;
     let mut last_colon_end = 0;
     let mut bracket_depth: u32 = 0;
@@ -1541,7 +1560,17 @@ fn parse_variants(class: &str) -> (u128, usize, &str) {
                 let variant = &class[segment_start..i];
                 if !variant.is_empty() {
                     let priority = variant_priority(variant);
-                    variant_bitmask |= 1u128 << priority;
+                    // Determine if this is a named or arbitrary-value variant
+                    let kind = if variant.contains('[') {
+                        VariantKind::Arbitrary
+                    } else {
+                        VariantKind::Named
+                    };
+                    variants.push(VariantKey {
+                        priority,
+                        kind,
+                        name: variant.to_string(),
+                    });
                     variant_count += 1;
                 }
                 last_colon_end = i + 1;
@@ -1551,13 +1580,16 @@ fn parse_variants(class: &str) -> (u128, usize, &str) {
         }
     }
 
+    // Sort variants by priority (ascending), then kind (named < arbitrary), then name
+    variants.sort();
+
     let base = if variant_count > 0 {
         &class[last_colon_end..]
     } else {
         class
     };
 
-    (variant_bitmask, variant_count, base)
+    (variants, variant_count, base)
 }
 
 // ---------------------------------------------------------------------------
@@ -1574,7 +1606,7 @@ fn parse_variants(class: &str) -> (u128, usize, &str) {
 #[derive(Debug)]
 #[allow(dead_code)]
 struct ClassSortKey<'a> {
-    variant_bitmask: u128,
+    variant_keys: Vec<VariantKey>,
     variant_count: usize,
     order: Option<&'a [usize]>,
     count: usize,
@@ -1815,8 +1847,12 @@ fn compare_classes(a: &ClassSortKey, b: &ClassSortKey) -> std::cmp::Ordering {
     let a_order = a.order.unwrap_or(&[]);
     let b_order = b.order.unwrap_or(&[]);
 
-    // PRIMARY: Sort by variant bitmask (Tailwind sorts by variant order FIRST)
-    let variant_cmp = a.variant_bitmask.cmp(&b.variant_bitmask);
+    // PRIMARY: Sort by variant keys (Tailwind sorts by variant order FIRST).
+    // Compare variant key vectors lexicographically — this handles:
+    // - Different variant types (hover < disabled < data-* < dark)
+    // - Sub-sorting within same type (data-closed < data-open < data-[side=*])
+    // - Different variant counts (0 variants < 1 variant < 2 variants)
+    let variant_cmp = a.variant_keys.cmp(&b.variant_keys);
     if variant_cmp != Ordering::Equal {
         return variant_cmp;
     }
@@ -1912,10 +1948,10 @@ impl ClassSorter {
             .iter()
             .enumerate()
             .map(|(i, &cls)| {
-                let (variant_bitmask, variant_count, base) = parse_variants(cls);
+                let (variant_keys, variant_count, base) = parse_variants(cls);
                 let sort_key = lookup_sort_key(base);
                 ClassSortKey {
-                    variant_bitmask,
+                    variant_keys,
                     variant_count,
                     order: sort_key.map(|k| k.order.as_slice()),
                     count: sort_key.map_or(0, |k| k.count),
