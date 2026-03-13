@@ -1792,27 +1792,25 @@ fn compare_classes(a: &ClassSortKey, b: &ClassSortKey) -> std::cmp::Ordering {
                 return variant_cmp;
             }
 
-            // SECONDARY: Compare property indices element-by-element
+            // SECONDARY: Compare property indices element-by-element.
+            // When one array is shorter, treat missing entries as Infinity (usize::MAX)
+            // to match Tailwind's `(order[offset] ?? Infinity)` behavior.
+            let max_len = a_order.len().max(b_order.len());
             let mut offset = 0;
-            while offset < a_order.len() && offset < b_order.len() {
-                if a_order[offset] != b_order[offset] {
-                    return a_order[offset].cmp(&b_order[offset]);
+            while offset < max_len {
+                let a_val = a_order.get(offset).copied().unwrap_or(usize::MAX);
+                let b_val = b_order.get(offset).copied().unwrap_or(usize::MAX);
+                if a_val != b_val {
+                    return a_val.cmp(&b_val);
                 }
                 offset += 1;
             }
 
-            // If all compared elements are equal, the one with MORE properties comes first
+            // If all property indices are equal, the one with MORE count comes first
             // (matching Tailwind's `zSorting.properties.count - aSorting.properties.count`)
             let count_cmp = b.count.cmp(&a.count);
             if count_cmp != Ordering::Equal {
                 return count_cmp;
-            }
-
-            // If same property indices and count, sort by property vector length
-            // (more indices = more specific, comes first)
-            let len_cmp = b_order.len().cmp(&a_order.len());
-            if len_cmp != Ordering::Equal {
-                return len_cmp;
             }
 
             // Final tie-break: alphabetical by full class name
