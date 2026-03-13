@@ -616,6 +616,25 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     // -- Animation --
     ("animate", &["animation"]),
 
+    // -- tw-animate-css utilities (from @utility directives) --
+    // These generate only custom properties (--tw-enter-*, --tw-exit-*) which are
+    // NOT in PROPERTY_ORDER, so they get order=[], count=1. They sort after all
+    // standard utilities and tie-break alphabetically.
+    ("fade-in", &["--tw-enter-opacity"]),
+    ("fade-out", &["--tw-exit-opacity"]),
+    ("zoom-in", &["--tw-enter-scale"]),
+    ("zoom-out", &["--tw-exit-scale"]),
+    ("spin-in", &["--tw-enter-rotate"]),
+    ("spin-out", &["--tw-exit-rotate"]),
+    ("slide-in-from-top", &["--tw-enter-translate-y"]),
+    ("slide-in-from-bottom", &["--tw-enter-translate-y"]),
+    ("slide-in-from-left", &["--tw-enter-translate-x"]),
+    ("slide-in-from-right", &["--tw-enter-translate-x"]),
+    ("slide-out-to-top", &["--tw-exit-translate-y"]),
+    ("slide-out-to-bottom", &["--tw-exit-translate-y"]),
+    ("slide-out-to-left", &["--tw-exit-translate-x"]),
+    ("slide-out-to-right", &["--tw-exit-translate-x"]),
+
     // -- Cursor --
     ("cursor", &["cursor"]),
 
@@ -1782,46 +1801,62 @@ fn lookup_sort_key(base_class: &str) -> Option<&'static SortKey> {
 fn compare_classes(a: &ClassSortKey, b: &ClassSortKey) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
-    // Unknown classes sort BEFORE known classes (matching prettier-plugin-tailwindcss
-    // behavior where getClassOrder returns null → sorts first, preserving relative order).
+    // Unknown base-only classes (no variants, order = None) sort FIRST, preserving
+    // relative order — matching prettier-plugin-tailwindcss where getClassOrder
+    // returns null for truly unknown classes.
+    //
+    // However, classes WITH variants but unknown base utility (like data-closed:fade-out-0
+    // where fade-out-0 isn't in our table) should still sort by their variant bitmask
+    // and be placed after all known base classes. We treat unknown bases with variants
+    // as having "infinity" property order.
+    let a_has_variants = a.variant_bitmask != 0;
+    let b_has_variants = b.variant_bitmask != 0;
+
     match (a.order, b.order) {
-        (None, None) => return a.original_index.cmp(&b.original_index),
-        (None, Some(_)) => return Ordering::Less,
-        (Some(_), None) => return Ordering::Greater,
-        (Some(a_order), Some(b_order)) => {
-            // PRIMARY: Sort by variant bitmask (Tailwind sorts by variant order FIRST)
-            let variant_cmp = a.variant_bitmask.cmp(&b.variant_bitmask);
-            if variant_cmp != Ordering::Equal {
-                return variant_cmp;
-            }
-
-            // SECONDARY: Compare property indices element-by-element.
-            // When one array is shorter, treat missing entries as Infinity (usize::MAX)
-            // to match Tailwind's `(order[offset] ?? Infinity)` behavior.
-            let max_len = a_order.len().max(b_order.len());
-            let mut offset = 0;
-            while offset < max_len {
-                let a_val = a_order.get(offset).copied().unwrap_or(usize::MAX);
-                let b_val = b_order.get(offset).copied().unwrap_or(usize::MAX);
-                if a_val != b_val {
-                    return a_val.cmp(&b_val);
-                }
-                offset += 1;
-            }
-
-            // If all property indices are equal, the one with MORE count comes first
-            // (matching Tailwind's `zSorting.properties.count - aSorting.properties.count`)
-            let count_cmp = b.count.cmp(&a.count);
-            if count_cmp != Ordering::Equal {
-                return count_cmp;
-            }
-
-            // Final tie-break: alphabetical by full class name
-            // Using full class (with variants) ensures consistent ordering of
-            // same-base-utility classes with different variants.
-            a.full_class.cmp(b.full_class)
+        (None, None) if !a_has_variants && !b_has_variants => {
+            return a.original_index.cmp(&b.original_index);
         }
+        (None, Some(_)) if !a_has_variants => return Ordering::Less,
+        (Some(_), None) if !b_has_variants => return Ordering::Greater,
+        _ => {}
     }
+
+    // For all other cases (including unknown bases with variants), use the
+    // standard comparison but treat None order as empty array with high sort position.
+    let a_order = a.order.unwrap_or(&[]);
+    let b_order = b.order.unwrap_or(&[]);
+
+    // PRIMARY: Sort by variant bitmask (Tailwind sorts by variant order FIRST)
+    let variant_cmp = a.variant_bitmask.cmp(&b.variant_bitmask);
+    if variant_cmp != Ordering::Equal {
+        return variant_cmp;
+    }
+
+    // SECONDARY: Compare property indices element-by-element.
+    // When one array is shorter, treat missing entries as Infinity (usize::MAX)
+    // to match Tailwind's `(order[offset] ?? Infinity)` behavior.
+    let max_len = a_order.len().max(b_order.len());
+    let mut offset = 0;
+    while offset < max_len {
+        let a_val = a_order.get(offset).copied().unwrap_or(usize::MAX);
+        let b_val = b_order.get(offset).copied().unwrap_or(usize::MAX);
+        if a_val != b_val {
+            return a_val.cmp(&b_val);
+        }
+        offset += 1;
+    }
+
+    // If all property indices are equal, the one with MORE count comes first
+    // (matching Tailwind's `zSorting.properties.count - aSorting.properties.count`)
+    let count_cmp = b.count.cmp(&a.count);
+    if count_cmp != Ordering::Equal {
+        return count_cmp;
+    }
+
+    // Final tie-break: alphabetical by full class name
+    // Using full class (with variants) ensures consistent ordering of
+    // same-base-utility classes with different variants.
+    a.full_class.cmp(b.full_class)
 }
 
 // ---------------------------------------------------------------------------
