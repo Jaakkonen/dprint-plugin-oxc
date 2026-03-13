@@ -536,10 +536,21 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     ("flex-auto", &["flex"]),
     ("flex-initial", &["flex"]),
     ("flex-none", &["flex"]),
-    // NOTE: functional `flex-{value}` is handled by prefix stripping → "flex" → display
-    // But numeric flex values like `flex-1` need the CSS `flex` property.
-    // We handle this ambiguity in the lookup: "flex-1" strips to prefix "flex" → display.
-    // This is intentionally correct — Tailwind sorts `flex` (display) before `flex-1` (flex property).
+    // Numeric flex values like `flex-1` need the CSS `flex` property (not display).
+    // We add explicit entries for common numeric values. The prefix fallback "flex"
+    // still maps to display (for bare `flex` meaning `display: flex`).
+    ("flex-1", &["flex"]),
+    ("flex-2", &["flex"]),
+    ("flex-3", &["flex"]),
+    ("flex-4", &["flex"]),
+    ("flex-5", &["flex"]),
+    ("flex-6", &["flex"]),
+    ("flex-7", &["flex"]),
+    ("flex-8", &["flex"]),
+    ("flex-9", &["flex"]),
+    ("flex-10", &["flex"]),
+    ("flex-11", &["flex"]),
+    ("flex-12", &["flex"]),
 
     // -- Flex shrink / grow --
     ("shrink", &["flex-shrink"]),
@@ -774,6 +785,10 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     ("divide-double", &["divide-style"]),
     ("divide-none", &["divide-style"]),
 
+    // -- Divide color (--tw-sort: divide-color) --
+    // `divide-<color>` maps to divide-color. Disambiguation via DISAMBIG_COLOR_KEYS.
+    ("divide", &["divide-color"]),
+
     // -- Place self --
     ("place-self-auto", &["place-self"]),
     ("place-self-start", &["place-self"]),
@@ -849,11 +864,7 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     ("rounded-br", &["border-bottom-right-radius"]),
     ("rounded-bl", &["border-bottom-left-radius"]),
 
-    // -- Border width (functional — when value is a width/number) --
-    // Note: border with a color value maps to border-color (handled below).
-    // The sorter can't distinguish width vs color at sort time, so we use
-    // border-width as the default (which comes before border-color in the order).
-    ("border", &["border-width"]),
+    // -- Border width (specific directional entries — always width) --
     ("border-x", &["border-inline-width"]),
     ("border-y", &["border-block-width"]),
     ("border-s", &["border-inline-start-width"]),
@@ -862,6 +873,15 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     ("border-r", &["border-right-width"]),
     ("border-b", &["border-bottom-width"]),
     ("border-l", &["border-left-width"]),
+
+    // -- Border (bare `border` or `border-<number>` = width, `border-<color>` = color) --
+    // Bare `border` = border-width: 1px. Specific numeric widths are explicit entries.
+    // `border-<color>` disambiguation is handled in lookup_sort_key via DISAMBIG_COLOR_KEYS.
+    ("border", &["border-width"]),
+    ("border-0", &["border-width"]),
+    ("border-2", &["border-width"]),
+    ("border-4", &["border-width"]),
+    ("border-8", &["border-width"]),
 
     // -- Border style --
     ("border-solid", &["border-style"]),
@@ -1009,9 +1029,26 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     ("font-mono", &["font-family"]),
 
     // -- Font size (text-sm, text-lg, etc.) --
-    // Note: `text` with a color value maps to `color`. We use `font-size` as default
-    // for the `text` functional prefix since size classes are more common.
-    ("text", &["font-size"]),
+    // Note: `text-<size>` maps to font-size, `text-<color>` maps to color.
+    // Disambiguation is handled in `lookup_sort_key` — fallback prefix "text" maps
+    // to "color" because most text-* values are colors; the known sizes (xs, sm,
+    // base, lg, xl, 2xl–9xl) are added as explicit entries below.
+    ("text", &["color"]),
+    // Explicit text-size entries (these override the "text" → color fallback):
+    ("text-xs", &["font-size", "line-height"]),
+    ("text-sm", &["font-size", "line-height"]),
+    ("text-base", &["font-size", "line-height"]),
+    ("text-lg", &["font-size", "line-height"]),
+    ("text-xl", &["font-size", "line-height"]),
+    ("text-2xl", &["font-size", "line-height"]),
+    ("text-3xl", &["font-size", "line-height"]),
+    ("text-4xl", &["font-size", "line-height"]),
+    ("text-5xl", &["font-size", "line-height"]),
+    ("text-6xl", &["font-size", "line-height"]),
+    ("text-7xl", &["font-size", "line-height"]),
+    ("text-8xl", &["font-size", "line-height"]),
+    ("text-9xl", &["font-size", "line-height"]),
+    ("text-s", &["font-size", "line-height"]),
 
     // -- Font weight (font-bold, font-semibold, etc.) --
     ("font-thin", &["font-weight"]),
@@ -1174,18 +1211,26 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     ("inset-shadow-initial", &["--tw-inset-shadow-color"]),
 
     // -- Ring --
+    // `ring` (bare) and `ring-<number>` = ring width (--tw-ring-shadow, box-shadow).
+    // `ring-<color>` = ring color (--tw-ring-color).
+    // Disambiguation between width and color is handled in `lookup_sort_key`.
     ("ring-inset", &["--tw-ring-shadow"]),
     ("ring", &["--tw-ring-shadow", "box-shadow"]),
     ("inset-ring", &["--tw-inset-ring-shadow", "box-shadow"]),
     ("ring-offset", &["--tw-ring-offset-width"]),
 
     // -- Outline --
-    ("outline-hidden", &["outline"]),
-    ("outline-none", &["outline"]),
-    ("outline-solid", &["outline"]),
-    ("outline-dashed", &["outline"]),
-    ("outline-dotted", &["outline"]),
-    ("outline-double", &["outline"]),
+    // Note: outline-style variants (hidden/none/solid/dashed/dotted/double)
+    // generate `outline-style` which is NOT in PROPERTY_ORDER. In Tailwind's
+    // sorting, this means they get an empty sort key (with count > 0), so they
+    // sort after all classes with actual property indices. We map them to
+    // "outline-style" which won't be found in PROPERTY_INDEX → empty order [].
+    ("outline-hidden", &["outline-style"]),
+    ("outline-none", &["outline-style"]),
+    ("outline-solid", &["outline-style"]),
+    ("outline-dashed", &["outline-style"]),
+    ("outline-dotted", &["outline-style"]),
+    ("outline-double", &["outline-style"]),
     ("outline", &["outline-width"]),
     ("outline-offset", &["outline-offset"]),
 
@@ -1215,7 +1260,16 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     ("backdrop-filter", &["backdrop-filter"]),
 
     // -- Transition --
-    ("transition", &["transition-property"]),
+    // Bare `transition` and the static variants (colors, opacity, shadow, transform)
+    // generate three declarations: transition-property, transition-timing-function,
+    // and transition-duration. We list all three for correct sort ordering.
+    ("transition", &["transition-property", "transition-timing-function", "transition-duration"]),
+    ("transition-all", &["transition-property", "transition-timing-function", "transition-duration"]),
+    ("transition-colors", &["transition-property", "transition-timing-function", "transition-duration"]),
+    ("transition-opacity", &["transition-property", "transition-timing-function", "transition-duration"]),
+    ("transition-shadow", &["transition-property", "transition-timing-function", "transition-duration"]),
+    ("transition-transform", &["transition-property", "transition-timing-function", "transition-duration"]),
+    ("transition-none", &["transition-property"]),
     ("transition-discrete", &["transition-behavior"]),
     ("transition-normal", &["transition-behavior"]),
     ("delay", &["transition-delay"]),
@@ -1243,6 +1297,15 @@ static CLASS_TO_PROPERTIES: &[(&str, &[&str])] = &[
     // -- Content --
     ("content-none", &["content"]),
     ("content", &["content"]),
+
+    // -- User select (user-select is NOT in PROPERTY_ORDER, so these get empty
+    // order arrays but count > 0, which makes them sort after all classes with
+    // property indices — matching Tailwind's behavior) --
+    ("select-none", &["user-select", "-webkit-user-select"]),
+    ("select-text", &["user-select", "-webkit-user-select"]),
+    ("select-all", &["user-select", "-webkit-user-select"]),
+    ("select-auto", &["user-select", "-webkit-user-select"]),
+    ("select-contain", &["user-select", "-webkit-user-select"]),
 
     // -- Forced color adjust --
     ("forced-color-adjust-none", &["forced-color-adjust"]),
@@ -1331,6 +1394,96 @@ fn strip_variants(class: &str) -> (usize, &str) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Disambiguation: Ambiguous prefix → color override lookup
+//
+// Some Tailwind prefixes (like "text", "border", "ring", "shadow", "divide")
+// generate different CSS properties depending on the value (size vs color).
+// The PREFIX_SORT_KEYS table stores the "default" mapping. When prefix
+// stripping lands on one of these ambiguous prefixes, we check the
+// value suffix to determine if it's a color or the default.
+//
+// Approach: if the full class matches the default mapping's expected pattern
+// (e.g., numeric size, known keyword), keep it. Otherwise, assume it's a
+// color value and use the color sort key.
+// ---------------------------------------------------------------------------
+
+/// Alternate sort keys for ambiguous prefixes when the value is a color.
+static DISAMBIG_COLOR_KEYS: Lazy<HashMap<&'static str, SortKey>> = Lazy::new(|| {
+    let mut map = HashMap::new();
+
+    let make_key = |properties: &[&str]| -> SortKey {
+        let mut indices: Vec<usize> = properties
+            .iter()
+            .filter_map(|prop| PROPERTY_INDEX.get(prop).copied())
+            .collect();
+        indices.sort_unstable();
+        indices.dedup();
+        SortKey { order: indices, count: properties.len() }
+    };
+
+    // border-<color> → border-color (instead of border-width)
+    map.insert("border", make_key(&["border-color"]));
+    // ring-<color> → --tw-ring-color (instead of --tw-ring-shadow, box-shadow)
+    map.insert("ring", make_key(&["--tw-ring-color"]));
+    // inset-ring-<color>
+    map.insert("inset-ring", make_key(&["--tw-inset-ring-color"]));
+    // shadow-<color> → --tw-shadow-color (instead of --tw-shadow, box-shadow)
+    map.insert("shadow", make_key(&["--tw-shadow-color"]));
+    // inset-shadow-<color>
+    map.insert("inset-shadow", make_key(&["--tw-inset-shadow-color"]));
+    // divide-<color> → divide-color (instead of divide-x-width)
+    map.insert("divide", make_key(&["divide-color"]));
+
+    map
+});
+
+/// Check if a suffix after an ambiguous prefix looks like a numeric/keyword value
+/// (not a color). Returns true if the value is a width/size/keyword.
+fn is_numeric_or_keyword_value(prefix: &str, suffix: &str) -> bool {
+    if suffix.is_empty() {
+        return true; // bare prefix (e.g., "ring", "border") = default mapping
+    }
+
+    // Arbitrary values in brackets: check if they contain numbers/units
+    if suffix.starts_with('[') {
+        // Arbitrary numeric: [3px], [0.5rem], [2], [50%], [calc(...)]
+        let inner = suffix.trim_start_matches('[').trim_end_matches(']');
+        return inner.starts_with(|c: char| c.is_ascii_digit() || c == '.' || c == '-')
+            || inner.starts_with("calc(")
+            || inner.starts_with("var(")
+            || inner.ends_with("px")
+            || inner.ends_with("rem")
+            || inner.ends_with("em")
+            || inner.ends_with('%');
+    }
+
+    // Check prefix-specific patterns
+    match prefix {
+        "border" => {
+            // border-0 through border-8 are explicit entries; this handles
+            // arbitrary widths and ensures border-<color> gets color sort key.
+            // The value is a width if it's numeric.
+            suffix.parse::<f64>().is_ok()
+        }
+        "ring" | "inset-ring" => {
+            // ring-0, ring-1, ring-2, ring-4, ring-8, ring-inset
+            suffix.parse::<f64>().is_ok() || suffix == "inset"
+        }
+        "shadow" | "inset-shadow" => {
+            // shadow-sm, shadow-md, shadow-lg, shadow-xl, shadow-2xl, shadow-none, shadow-inner
+            matches!(suffix, "sm" | "md" | "lg" | "xl" | "2xl" | "none" | "inner" | "initial")
+        }
+        "divide" => {
+            // divide-x, divide-y, divide-solid, divide-dashed, etc.
+            // These have explicit entries in CLASS_TO_PROPERTIES, so they won't reach
+            // disambiguation. But just in case:
+            matches!(suffix, "x" | "y" | "solid" | "dashed" | "dotted" | "double" | "none")
+        }
+        _ => false,
+    }
+}
+
 /// Look up the sort key for a base utility class (without variants).
 ///
 /// Strategy:
@@ -1338,6 +1491,8 @@ fn strip_variants(class: &str) -> (usize, &str) {
 /// 2. Try progressively shorter prefixes by removing from the end at `-` boundaries.
 ///    e.g., `p-4` → try `p-4`, then `p`.
 /// 3. Handle negative values: `-m-4` → strip leading `-`, try `m-4`, then `m`.
+/// 4. Disambiguate ambiguous prefixes (text, border, ring, shadow, divide)
+///    by checking if the value suffix indicates a color.
 fn lookup_sort_key(base_class: &str) -> Option<&'static SortKey> {
     // 1. Exact match
     if let Some(key) = PREFIX_SORT_KEYS.get(base_class) {
@@ -1362,6 +1517,13 @@ fn lookup_sort_key(base_class: &str) -> Option<&'static SortKey> {
     while let Some(dash_pos) = candidate.rfind('-') {
         candidate = &candidate[..dash_pos];
         if let Some(key) = PREFIX_SORT_KEYS.get(candidate) {
+            // 4. Disambiguate: check if this is an ambiguous prefix with a color value
+            if let Some(color_key) = DISAMBIG_COLOR_KEYS.get(candidate) {
+                let suffix = &effective[candidate.len() + 1..]; // part after "prefix-"
+                if !is_numeric_or_keyword_value(candidate, suffix) {
+                    return Some(color_key);
+                }
+            }
             return Some(key);
         }
     }
@@ -1378,11 +1540,12 @@ fn lookup_sort_key(base_class: &str) -> Option<&'static SortKey> {
 fn compare_classes(a: &ClassSortKey, b: &ClassSortKey) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
-    // Unknown classes always sort after known classes
+    // Unknown classes sort BEFORE known classes (matching prettier-plugin-tailwindcss
+    // behavior where getClassOrder returns null → sorts first, preserving relative order).
     match (a.order, b.order) {
         (None, None) => return a.original_index.cmp(&b.original_index),
-        (None, Some(_)) => return Ordering::Greater,
-        (Some(_), None) => return Ordering::Less,
+        (None, Some(_)) => return Ordering::Less,
+        (Some(_), None) => return Ordering::Greater,
         (Some(a_order), Some(b_order)) => {
             // Sort by variant count first
             let variant_cmp = a.variant_count.cmp(&b.variant_count);
@@ -1569,17 +1732,19 @@ mod tests {
     }
 
     #[test]
-    fn unknown_classes_sort_last() {
+    fn unknown_classes_sort_first() {
+        // Unknown classes sort before known classes (matching prettier-plugin-tailwindcss)
         let s = sorter();
         let result = s.sort_class_string("custom-class flex another-custom p-4".to_string());
-        assert!(result.starts_with("flex p-4"), "got: {result}");
+        assert!(result.ends_with("flex p-4"), "got: {result}");
+        assert!(result.starts_with("custom-class another-custom"), "got: {result}");
     }
 
     #[test]
     fn preserve_relative_order_of_unknowns() {
         let s = sorter();
         let result = s.sort_class_string("zzz-unknown flex aaa-unknown".to_string());
-        assert_eq!(result, "flex zzz-unknown aaa-unknown");
+        assert_eq!(result, "zzz-unknown aaa-unknown flex");
     }
 
     #[test]

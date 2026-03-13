@@ -240,10 +240,12 @@ fn responsive_variants() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn unknown_classes_sort_last_preserving_order() {
+fn unknown_classes_sort_first_preserving_order() {
+    // Unknown classes sort FIRST (before known), preserving their relative order
+    // This matches prettier-plugin-tailwindcss behavior
     assert_eq!(
         sort("zzz-unknown flex aaa-unknown p-4"),
-        "flex p-4 zzz-unknown aaa-unknown"
+        "zzz-unknown aaa-unknown flex p-4"
     );
 }
 
