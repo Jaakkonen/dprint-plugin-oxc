@@ -1,12 +1,24 @@
 # prettier_fixtures.txt — ground-truth sort order from prettier-plugin-tailwindcss
-# Generated: 2026-03-13T17:14:04.184Z
+# Generated: 2026-03-14T07:45:13.177Z
 # prettier: 3.8.1
 # prettier-plugin-tailwindcss: 0.7.2
 # tailwindcss: 4.2.1
 #
 # Format: input<TAB>expected  (one pair per line, # lines are comments)
-# Re-generate: cd tailwind-sorter/tests && bun generate_fixtures.mjs
+# Re-generate: cd tailwind-sorter/tests && bun install && bun generate_fixtures.mjs
 #
+# Sources: 10 from tailwindcss/sort.test.ts + handwritten coverage tests
+#
+py-3 p-1 px-3	p-1 px-3 py-3
+px-3 focus:hover:p-3 hover:p-1 py-3	px-3 py-3 hover:p-1 focus:hover:p-3
+px-3 py-4! p-1	p-1 px-3 py-4!
+py-4! px-3 p-1	p-1 px-3 py-4!
+b p-1 a	b a p-1
+hover:b focus:p-1 a	hover:b a focus:p-1
+a-class px-3 p-1 b-class py-3 bg-red-500 bg-blue-500	a-class b-class bg-blue-500 bg-red-500 p-1 px-3 py-3
+px-3 b-class p-1 py-3 bg-blue-500 a-class bg-red-500	b-class a-class bg-blue-500 bg-red-500 p-1 px-3 py-3
+[--fg:#fff]	[--fg:#fff]
+[--bg:#111] [--bg_hover:#000] [--fg:#fff]	[--bg:#111] [--bg_hover:#000] [--fg:#fff]
 block flex inline grid hidden	block flex grid hidden inline
 flex-1 flex-auto flex-initial flex-none	flex-1 flex-auto flex-initial flex-none
 grid-cols-3 grid-rows-2 gap-4 gap-x-2 gap-y-6	grid-cols-3 grid-rows-2 gap-4 gap-x-2 gap-y-6

@@ -16,10 +16,39 @@
 import * as prettier from "prettier";
 import { writeFileSync } from "fs";
 
-// Each entry is a raw unsorted class string.
+// ---------------------------------------------------------------------------
+// Section 1: Upstream inputs from tailwindcss/src/sort.test.ts
+//
+// These are the canonical test inputs from Tailwind CSS v4's own sort tests.
+// Source: https://github.com/tailwindlabs/tailwindcss/blob/main/packages/tailwindcss/src/sort.test.ts
+// When updating Tailwind, check if new test cases were added upstream.
+// ---------------------------------------------------------------------------
+
+const upstreamInputs = [
+  // table array
+  "py-3 p-1 px-3",
+  "px-3 focus:hover:p-3 hover:p-1 py-3",
+  "px-3 py-4! p-1",
+  "py-4! px-3 p-1",
+  "b p-1 a",
+  "hover:b focus:p-1 a",
+  // "can sort classes deterministically across multiple class lists"
+  "a-class px-3 p-1 b-class py-3 bg-red-500 bg-blue-500",
+  "px-3 b-class p-1 py-3 bg-blue-500 a-class bg-red-500",
+  // "sorts arbitrary values" (all-unknown, should preserve order)
+  "[--fg:#fff]",
+  "[--bg:#111] [--bg_hover:#000] [--fg:#fff]",
+];
+
+// ---------------------------------------------------------------------------
+// Section 2: Comprehensive handwritten inputs
+//
+// Cover patterns found in real component libraries: base utilities, variants,
+// compound variants, arbitrary selectors, container queries, etc.
 // ALL classes must resolve with a bare `@import "tailwindcss"` (no custom theme).
-// Avoid project-specific CSS variables like ring, accent, foreground, input, etc.
-const inputs = [
+// ---------------------------------------------------------------------------
+
+const handwrittenInputs = [
   // ── Base utilities: layout ──────────────────────────────────────────
   "block flex inline grid hidden",
   "flex-1 flex-auto flex-initial flex-none",
@@ -155,67 +184,68 @@ const inputs = [
   "my-component text-lg font-bold bg-white shadow-md",
 
   // ── Complex real-world strings (standard classes only) ─────────────
-  // Button-like
   "inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:pointer-events-none disabled:opacity-50",
-
-  // Input-like
   "flex h-8 w-full min-w-0 rounded-lg border bg-transparent px-3 py-1 text-sm shadow-xs transition-colors outline-none placeholder:text-gray-400 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50",
-
-  // Sidebar-like
   "fixed inset-y-0 z-50 hidden h-svh w-64 transition-all duration-200 ease-linear data-[side=left]:left-0 data-[side=right]:right-0 md:flex",
-
-  // Card-like
   "flex flex-col gap-4 overflow-hidden rounded-xl bg-white py-4 text-sm text-gray-900 ring-1 ring-gray-200",
 
-  // Responsive variants
+  // ── Responsive variants ────────────────────────────────────────────
   "p-2 sm:p-4 md:p-6 lg:p-8 xl:p-10 2xl:p-12",
 
-  // All pseudo-elements
+  // ── All pseudo-elements ────────────────────────────────────────────
   "before:absolute before:inset-0 after:absolute after:inset-0 first-letter:text-2xl first-line:font-bold",
 
-  // Motion preferences
+  // ── Motion / print / orientation / direction / supports ────────────
   "motion-safe:animate-spin motion-reduce:animate-none",
-
-  // Print and forced-colors
   "print:hidden forced-colors:outline",
-
-  // Orientation
   "portrait:flex-col landscape:flex-row",
-
-  // Direction
   "ltr:ml-2 rtl:mr-2",
-
-  // Supports
   "supports-[display:grid]:grid supports-[backdrop-filter]:backdrop-blur",
 
   // ── Edge cases ─────────────────────────────────────────────────────
-  // Single class (should be unchanged)
   "flex",
-  // All unknown (should preserve relative order)
   "foo bar baz",
-  // Empty-ish
   "",
-  // Duplicate classes (prettier removes duplicates)
   "p-4 m-2 p-4 flex m-2",
 ];
 
+// ---------------------------------------------------------------------------
+// Main: merge inputs, deduplicate, generate expected outputs via prettier
+// ---------------------------------------------------------------------------
+
 async function main() {
+  console.log(`Upstream inputs from sort.test.ts: ${upstreamInputs.length}`);
+
+  // Merge: upstream first, then handwritten, deduplicate
+  const seen = new Set();
+  const allInputs = [];
+
+  for (const input of [...upstreamInputs, ...handwrittenInputs]) {
+    const trimmed = input.trim();
+    // Skip inputs with newlines (multiline @apply) or non-ASCII whitespace
+    if (trimmed.includes("\n") || trimmed.includes("\u3000")) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    allInputs.push(trimmed);
+  }
+
+  console.log(`Total unique inputs: ${allInputs.length}`);
+  console.log("Generating expected outputs via prettier...");
+
   const lines = [];
 
-  for (const input of inputs) {
+  for (const input of allInputs) {
     if (input === "") {
       lines.push(`\t`);
       continue;
     }
 
-    // Wrap in a JSX className to get prettier to sort it
     const code = `const x = <div className="${input}" />\n`;
     const formatted = await prettier.format(code, {
       parser: "babel",
       plugins: ["prettier-plugin-tailwindcss"],
       tailwindStylesheet: "./global.css",
     });
-    // Extract the class string from the formatted output
     const match = formatted.match(/className="([^"]*)"/);
     if (!match) {
       console.error(`Failed to extract classes from: ${formatted}`);
@@ -239,7 +269,9 @@ async function main() {
     `# tailwindcss: ${versions.tailwind}`,
     "#",
     "# Format: input<TAB>expected  (one pair per line, # lines are comments)",
-    "# Re-generate: cd tailwind-sorter/tests && bun generate_fixtures.mjs",
+    "# Re-generate: cd tailwind-sorter/tests && bun install && bun generate_fixtures.mjs",
+    "#",
+    `# Sources: ${upstreamInputs.length} from tailwindcss/sort.test.ts + handwritten coverage tests`,
     "#",
   ];
 
