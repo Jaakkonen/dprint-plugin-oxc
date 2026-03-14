@@ -1966,6 +1966,9 @@ fn is_numeric_or_keyword_value(prefix: &str, suffix: &str) -> bool {
 /// 4. Disambiguate ambiguous prefixes (text, border, ring, shadow, divide)
 ///    by checking if the value suffix indicates a color.
 fn lookup_sort_key(base_class: &str) -> Option<&'static SortKey> {
+    // 0. Strip `!` important modifier: `font-bold!` → `font-bold`
+    let base_class = base_class.strip_suffix('!').unwrap_or(base_class);
+
     // 1. Exact match
     if let Some(key) = PREFIX_SORT_KEYS.get(base_class) {
         return Some(key);
@@ -1990,6 +1993,17 @@ fn lookup_sort_key(base_class: &str) -> Option<&'static SortKey> {
         candidate = &candidate[..dash_pos];
         if let Some(key) = PREFIX_SORT_KEYS.get(candidate) {
             let suffix = &effective[candidate.len() + 1..]; // part after "prefix-"
+
+            // Reject prefix matches where the suffix is not a valid Tailwind value.
+            // The `font` prefix only accepts weight keywords (thin..black) and
+            // family theme values (sans, serif, mono). `font-inherit` etc. are unknown.
+            if candidate == "font" && !matches!(suffix,
+                "thin" | "extralight" | "light" | "normal" | "medium" |
+                "semibold" | "bold" | "extrabold" | "black" |
+                "sans" | "serif" | "mono"
+            ) && !suffix.starts_with('[') {
+                return None;
+            }
 
             // 4a. Special handling for `text` prefix:
             //     text-[10px] etc. → font-size (not color)
