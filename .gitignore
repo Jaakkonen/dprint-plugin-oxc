@@ -3,3 +3,6 @@ deployment/npm/plugin.wasm
 deployment/npm/node_modules
 .vscode
 .claude
+
+tailwind-sorter/target/
+tailwind-sorter/Cargo.lock

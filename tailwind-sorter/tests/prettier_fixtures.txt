@@ -1,0 +1,109 @@
+# prettier_fixtures.txt — ground-truth sort order from prettier-plugin-tailwindcss
+# Generated: 2026-03-14T07:45:13.177Z
+# prettier: 3.8.1
+# prettier-plugin-tailwindcss: 0.7.2
+# tailwindcss: 4.2.1
+#
+# Format: input<TAB>expected  (one pair per line, # lines are comments)
+# Re-generate: cd tailwind-sorter/tests && bun install && bun generate_fixtures.mjs
+#
+# Sources: 10 from tailwindcss/sort.test.ts + handwritten coverage tests
+#
+py-3 p-1 px-3	p-1 px-3 py-3
+px-3 focus:hover:p-3 hover:p-1 py-3	px-3 py-3 hover:p-1 focus:hover:p-3
+px-3 py-4! p-1	p-1 px-3 py-4!
+py-4! px-3 p-1	p-1 px-3 py-4!
+b p-1 a	b a p-1
+hover:b focus:p-1 a	hover:b a focus:p-1
+a-class px-3 p-1 b-class py-3 bg-red-500 bg-blue-500	a-class b-class bg-blue-500 bg-red-500 p-1 px-3 py-3
+px-3 b-class p-1 py-3 bg-blue-500 a-class bg-red-500	b-class a-class bg-blue-500 bg-red-500 p-1 px-3 py-3
+[--fg:#fff]	[--fg:#fff]
+[--bg:#111] [--bg_hover:#000] [--fg:#fff]	[--bg:#111] [--bg_hover:#000] [--fg:#fff]
+block flex inline grid hidden	block flex grid hidden inline
+flex-1 flex-auto flex-initial flex-none	flex-1 flex-auto flex-initial flex-none
+grid-cols-3 grid-rows-2 gap-4 gap-x-2 gap-y-6	grid-cols-3 grid-rows-2 gap-4 gap-x-2 gap-y-6
+inline-flex inline-grid inline-block table table-row	inline-block inline-flex inline-grid table table-row
+p-4 px-2 py-3 pt-1 pr-2 pb-3 pl-4	p-4 px-2 py-3 pt-1 pr-2 pb-3 pl-4
+m-4 mx-2 my-3 mt-1 mr-2 mb-3 ml-4	m-4 mx-2 my-3 mt-1 mr-2 mb-3 ml-4
+border border-2 border-t border-b-4 border-l-0	border border-2 border-t border-b-4 border-l-0
+rounded rounded-lg rounded-t-md rounded-br-sm	rounded rounded-lg rounded-t-md rounded-br-sm
+w-full w-1/2 w-auto min-w-0 max-w-sm	w-1/2 w-auto w-full max-w-sm min-w-0
+h-full h-screen h-auto min-h-0 max-h-64	h-auto h-full h-screen max-h-64 min-h-0
+size-4 size-8 size-full	size-4 size-8 size-full
+text-sm text-lg text-center font-bold font-medium	text-center text-lg text-sm font-bold font-medium
+text-red-500 text-blue-500/50 text-inherit	text-blue-500/50 text-inherit text-red-500
+leading-tight tracking-wide truncate line-clamp-2	line-clamp-2 truncate leading-tight tracking-wide
+line-clamp-3 flex text-center underline	line-clamp-3 flex text-center underline
+bg-white bg-black/50 bg-gradient-to-r bg-clip-padding	bg-black/50 bg-white bg-gradient-to-r bg-clip-padding
+flex flex-col flex-row items-center justify-between	flex flex-col flex-row items-center justify-between
+shrink-0 grow order-1 order-first	order-1 order-first shrink-0 grow
+self-start self-center place-items-center	place-items-center self-center self-start
+relative absolute fixed sticky	absolute fixed relative sticky
+inset-0 inset-x-0 inset-y-0 top-0 right-0 bottom-0 left-0	inset-0 inset-x-0 inset-y-0 top-0 right-0 bottom-0 left-0
+z-10 z-50 z-auto	z-10 z-50 z-auto
+border-gray-200 border-transparent border-red-500	border-gray-200 border-red-500 border-transparent
+ring-1 ring-blue-500 ring-offset-2	ring-1 ring-blue-500 ring-offset-2
+shadow shadow-lg shadow-md shadow-sm shadow-none	shadow shadow-lg shadow-md shadow-none shadow-sm
+outline-none outline-hidden outline-1	outline-hidden outline-1 outline-none
+transition transition-colors transition-all duration-200 ease-in-out	transition transition-all transition-colors duration-200 ease-in-out
+animate-spin animate-pulse animate-bounce	animate-bounce animate-pulse animate-spin
+cursor-pointer cursor-not-allowed	cursor-not-allowed cursor-pointer
+select-none select-text select-all	select-all select-none select-text
+pointer-events-none pointer-events-auto	pointer-events-auto pointer-events-none
+overflow-hidden overflow-auto overflow-x-scroll overflow-y-hidden	overflow-auto overflow-hidden overflow-x-scroll overflow-y-hidden
+visible invisible collapse	collapse invisible visible
+sr-only not-sr-only	sr-only not-sr-only
+w-[300px] h-[calc(100vh-4rem)] text-[14px] bg-[#ff0000]	h-[calc(100vh-4rem)] w-[300px] bg-[#ff0000] text-[14px]
+p-[clamp(1rem,2vw,3rem)] m-[var(--spacing)] border-[length:3px]	m-[var(--spacing)] border-[length:3px] p-[clamp(1rem,2vw,3rem)]
+-mt-4 -ml-2 -translate-x-1/2 -rotate-45 -inset-1	-inset-1 -mt-4 -ml-2 -translate-x-1/2 -rotate-45
+p-4! m-2! text-red-500! font-bold!	m-2! p-4! font-bold! text-red-500!
+hover:bg-blue-500 focus:ring-2 active:scale-95	hover:bg-blue-500 focus:ring-2 active:scale-95
+disabled:opacity-50 disabled:pointer-events-none	disabled:pointer-events-none disabled:opacity-50
+dark:bg-gray-900 dark:text-white	dark:bg-gray-900 dark:text-white
+sm:flex sm:hidden md:grid lg:block xl:inline 2xl:flex	sm:flex sm:hidden md:grid lg:block xl:inline 2xl:flex
+before:content-[''] before:absolute after:content-[''] after:block	before:absolute before:content-[''] after:block after:content-['']
+first:mt-0 last:mb-0 odd:bg-gray-50 even:bg-white	first:mt-0 last:mb-0 odd:bg-gray-50 even:bg-white
+placeholder:text-gray-400 placeholder:italic	placeholder:text-gray-400 placeholder:italic
+focus-within:ring-2 focus-visible:ring-2 focus-visible:outline-none	focus-within:ring-2 focus-visible:ring-2 focus-visible:outline-none
+aria-disabled:opacity-50 aria-disabled:pointer-events-none	aria-disabled:pointer-events-none aria-disabled:opacity-50
+data-active:bg-blue-500 data-open:rotate-180	data-active:bg-blue-500 data-open:rotate-180
+data-[state=active]:bg-blue-500 data-[side=top]:border-t	data-[side=top]:border-t data-[state=active]:bg-blue-500
+data-highlighted:bg-blue-100 data-highlighted:text-blue-900	data-highlighted:bg-blue-100 data-highlighted:text-blue-900
+group-hover:opacity-100 group-focus:ring-2	group-hover:opacity-100 group-focus:ring-2
+group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-2	group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-2
+group-data-vertical/tabs:w-full group-data-horizontal/tabs:flex-row	group-data-horizontal/tabs:flex-row group-data-vertical/tabs:w-full
+peer-hover:text-blue-500 peer-focus:ring-2 peer-invalid:border-red-500	peer-invalid:border-red-500 peer-hover:text-blue-500 peer-focus:ring-2
+peer-data-[size=default]/menu:top-1.5 peer-data-[size=lg]/menu:top-2.5 peer-data-[size=sm]/menu:top-1	peer-data-[size=default]/menu:top-1.5 peer-data-[size=lg]/menu:top-2.5 peer-data-[size=sm]/menu:top-1
+has-disabled:opacity-50 has-disabled:bg-gray-100	has-disabled:bg-gray-100 has-disabled:opacity-50
+has-[[data-slot=input]:focus-visible]:border-blue-500 has-[[data-slot=input]:focus-visible]:ring-2	has-[[data-slot=input]:focus-visible]:border-blue-500 has-[[data-slot=input]:focus-visible]:ring-2
+has-[>[data-align=end]]:h-auto has-[>[data-align=end]]:flex-col has-[>textarea]:h-auto	has-[>[data-align=end]]:h-auto has-[>[data-align=end]]:flex-col has-[>textarea]:h-auto
+has-[[data-slot][aria-invalid=true]]:border-red-500 has-[>[data-align=start]]:flex-col	has-[[data-slot][aria-invalid=true]]:border-red-500 has-[>[data-align=start]]:flex-col
+not-disabled:hover:bg-blue-500 not-first:mt-4	not-first:mt-4 not-disabled:hover:bg-blue-500
+hover:focus:bg-blue-500 dark:hover:bg-gray-800	hover:focus:bg-blue-500 dark:hover:bg-gray-800
+sm:hover:bg-blue-500 md:focus:ring-2 lg:dark:bg-gray-900	sm:hover:bg-blue-500 md:focus:ring-2 lg:dark:bg-gray-900
+dark:data-active:border-gray-700 dark:data-active:bg-gray-800	dark:data-active:border-gray-700 dark:data-active:bg-gray-800
+data-[side=bottom]:inset-x-0 data-[side=bottom]:border-t data-[side=left]:inset-y-0 data-[side=left]:border-r data-[side=right]:inset-y-0 data-[side=right]:border-l	data-[side=bottom]:inset-x-0 data-[side=bottom]:border-t data-[side=left]:inset-y-0 data-[side=left]:border-r data-[side=right]:inset-y-0 data-[side=right]:border-l
+[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4	[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4
+[&>span:last-child]:truncate [&_svg]:size-4 [&_svg]:shrink-0	[&_svg]:size-4 [&_svg]:shrink-0 [&>span:last-child]:truncate
+[&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-blue-500	[&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-blue-500
+[[data-slot=content]_&]:focus-within:border-blue-500 [[data-slot=content]_&]:focus-within:ring-0	[[data-slot=content]_&]:focus-within:border-blue-500 [[data-slot=content]_&]:focus-within:ring-0
+*:data-[slot=value]:flex *:data-[slot=value]:line-clamp-1 *:data-[slot=value]:items-center *:data-[slot=value]:gap-1.5	*:data-[slot=value]:line-clamp-1 *:data-[slot=value]:flex *:data-[slot=value]:items-center *:data-[slot=value]:gap-1.5
+@md/group:flex-row @md/group:items-center	@md/group:flex-row @md/group:items-center
+[&>*]:w-full @md/group:[&>*]:w-auto [&>.sr-only]:w-auto	[&>*]:w-full @md/group:[&>*]:w-auto [&>.sr-only]:w-auto
+custom-class p-4 another-unknown flex m-2	custom-class another-unknown m-2 flex p-4
+my-component text-lg font-bold bg-white shadow-md	my-component bg-white text-lg font-bold shadow-md
+inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:pointer-events-none disabled:opacity-50	inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:pointer-events-none disabled:opacity-50
+flex h-8 w-full min-w-0 rounded-lg border bg-transparent px-3 py-1 text-sm shadow-xs transition-colors outline-none placeholder:text-gray-400 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50	flex h-8 w-full min-w-0 rounded-lg border bg-transparent px-3 py-1 text-sm shadow-xs transition-colors outline-none placeholder:text-gray-400 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50
+fixed inset-y-0 z-50 hidden h-svh w-64 transition-all duration-200 ease-linear data-[side=left]:left-0 data-[side=right]:right-0 md:flex	fixed inset-y-0 z-50 hidden h-svh w-64 transition-all duration-200 ease-linear data-[side=left]:left-0 data-[side=right]:right-0 md:flex
+flex flex-col gap-4 overflow-hidden rounded-xl bg-white py-4 text-sm text-gray-900 ring-1 ring-gray-200	flex flex-col gap-4 overflow-hidden rounded-xl bg-white py-4 text-sm text-gray-900 ring-1 ring-gray-200
+p-2 sm:p-4 md:p-6 lg:p-8 xl:p-10 2xl:p-12	p-2 sm:p-4 md:p-6 lg:p-8 xl:p-10 2xl:p-12
+before:absolute before:inset-0 after:absolute after:inset-0 first-letter:text-2xl first-line:font-bold	first-letter:text-2xl first-line:font-bold before:absolute before:inset-0 after:absolute after:inset-0
+motion-safe:animate-spin motion-reduce:animate-none	motion-safe:animate-spin motion-reduce:animate-none
+print:hidden forced-colors:outline	print:hidden forced-colors:outline
+portrait:flex-col landscape:flex-row	portrait:flex-col landscape:flex-row
+ltr:ml-2 rtl:mr-2	ltr:ml-2 rtl:mr-2
+supports-[display:grid]:grid supports-[backdrop-filter]:backdrop-blur	supports-[backdrop-filter]:backdrop-blur supports-[display:grid]:grid
+flex	flex
+foo bar baz	foo bar baz
+	
+p-4 m-2 p-4 flex m-2	m-2 flex p-4
